@@ -127,27 +127,31 @@ Engine_Jamcoast : CroneEngine {
             // ---- QPAS: quad-peak animated filter ----
 
             // four bandpass filters with radiate-controlled spacing
+            // wider bandwidth (rq) so peaks don't lose energy
             filt = Mix.new([
-                BPF.ar(sig, (cutoff * (1 + (radiate * -1.5))).clip(20, 18000), 1 / (res.max(0.3) * 3)),
-                BPF.ar(sig, (cutoff * (1 + (radiate * -0.5))).clip(20, 18000), 1 / (res.max(0.3) * 3)),
-                BPF.ar(sig, (cutoff * (1 + (radiate * 0.5))).clip(20, 18000), 1 / (res.max(0.3) * 3)),
-                BPF.ar(sig, (cutoff * (1 + (radiate * 1.5))).clip(20, 18000), 1 / (res.max(0.3) * 3))
-            ]) * 0.5;
+                BPF.ar(sig, (cutoff * (1 + (radiate * -1.5))).clip(40, 16000), 1 / (res.max(0.5) * 1.5)),
+                BPF.ar(sig, (cutoff * (1 + (radiate * -0.5))).clip(40, 16000), 1 / (res.max(0.5) * 1.5)),
+                BPF.ar(sig, (cutoff * (1 + (radiate * 0.5))).clip(40, 16000), 1 / (res.max(0.5) * 1.5)),
+                BPF.ar(sig, (cutoff * (1 + (radiate * 1.5))).clip(40, 16000), 1 / (res.max(0.5) * 1.5))
+            ]);
 
-            // blend: at radiate=0 it's a single resonant peak; as radiate increases, formants spread
-            // also mix in some dry signal so the fundamental isn't lost
-            sig = (filt * 0.7) + (sig * 0.3 * (1 / (res.max(0.3) + 1)));
+            // blend filtered with dry: always keep strong dry signal
+            // radiate controls how much of the formant character comes through
+            sig = (sig * (1 - (radiate * 0.5))) + (filt * radiate.max(0.1) * 2);
+
+            // main low-pass so cutoff always does something audible
+            sig = RLPF.ar(sig, cutoff.clip(60, 18000), (1 / (res.max(0.3) + 1)).clip(0.1, 1));
 
             // ---- Optomix: low-pass gate ----
 
             // vactrol-style: fast attack, slow logarithmic decay
-            // couples amplitude and filter cutoff (louder = brighter)
             lpgEnv = EnvGen.kr(
                 Env.perc(0.001, lpgDecay * 3, 1, -8),
                 trig
             );
-            lpgCut = lpgEnv.linexp(0, 1, 200, 12000);
-            lpgAmp = lpgEnv;
+            // LPG cutoff never goes below 400 (stays audible)
+            lpgCut = lpgEnv.linexp(0, 1, 400, 12000);
+            lpgAmp = lpgEnv.max(0.05); // never fully silent
 
             // standard ADSR envelope (always active)
             env = EnvGen.kr(
@@ -157,13 +161,10 @@ Engine_Jamcoast : CroneEngine {
 
             // LPG mode: blend between ADSR-only and LPG-coupled
             sig = Select.ar(lpgMode, [
-                // mode 0: standard filter + ADSR
+                // mode 0: standard RLPF + ADSR
                 sig * env,
-                // mode 1: LPG — coupled amplitude+brightness + ADSR release tail
-                LPF.ar(sig, lpgCut) * lpgAmp * EnvGen.kr(
-                    Env.adsr(0, 0, 1, release),
-                    gate, doneAction: Done.freeSelf
-                )
+                // mode 1: LPG adds vactrol character on top of ADSR
+                LPF.ar(sig, lpgCut) * env * lpgAmp
             ]);
 
             sig = sig * amp;
