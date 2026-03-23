@@ -414,13 +414,13 @@ return {
     },
 
     ---------- RARE STRUCTURAL ----------
-    octave_shift = {
+    octave_range = {
       group = "structural",
-      weight = 0.15,
-      sensitivity = 0.2,
+      weight = 0.2,
+      sensitivity = 0.3,
       direction = "both",
-      range_lo = -1,
-      range_hi = 1,
+      range_lo = 1,
+      range_hi = 4,
       euclidean_pulses = 3,
     },
   },

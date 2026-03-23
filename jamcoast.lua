@@ -226,7 +226,7 @@ local function save_scene_anchors()
     shape = params:get("shape"),
     scale_type = params:get("scale_type"),
     root_note = params:get("root_note"),
-    octave_shift = params:get("octave_shift"),
+    octave_range = params:get("octave_range"),
   }
   local s = get_style()
   local pals = s.palettes
@@ -292,7 +292,7 @@ local function explorer_evolve()
     if explorer_tick == 1 then
       if active_palette then params:set("scale_type", active_palette.surge) end
       regen_pattern(s.intervals[2], 0.75 + a * 0.15, 0.6, 0.95)
-      params:set("octave_shift", math.random(0, 1))
+      params:set("octave_range", math.random(2, 3))
     end
 
     nudge("fold_amt", 0.03 * s.fold_love, 0.05, 0.85 * s.fold_love + 0.1)
@@ -358,7 +358,7 @@ local function explorer_evolve()
       seq.set_step(i, "fm_amt", math.random() * 1.5 * s.fm_love)
     end
     if math.random() < 0.1 * s.melody_wild then
-      params:set("octave_shift", math.random(-1, 2))
+      params:set("octave_range", math.random(2, 4))
     end
     if math.random() < 0.15 * s.melody_wild then
       nudge("root_note", math.random(-5, 5), 24, 84)
@@ -375,7 +375,7 @@ local function explorer_evolve()
       if active_palette then params:set("scale_type", active_palette.dissolve) end
       regen_pattern(s.intervals[4], 0.55 + a * 0.15, 0.4, 0.75)
       params:set("burst_mode", 1)
-      params:set("octave_shift", 0)
+      params:set("octave_range", 2)
       params:set("cutoff", util.clamp(params:get("cutoff"), 1500, 18000))
       params:set("delay_freeze", 1)
     end
@@ -611,7 +611,8 @@ local function advance_step()
 
   -- compute note
   local root = params:get("root_note")
-  local oct = params:get("octave_shift")
+  local oct_range = params:get("octave_range")
+  local oct = math.random(0, oct_range - 1)
   local midi_note = snap_to_scale(root + step.note + (oct * 12))
 
   -- play
@@ -936,7 +937,9 @@ local function draw_step_indicator()
     screen.move(90, 8)
     screen.text(phase_name)
     -- progress bar
-    local prog = explorer_tick / explorer_phase_lengths[explorer_phase]
+    local s = get_style()
+    local pl = s.phase_lengths[explorer_phase] or 8
+    local prog = util.clamp(explorer_tick / pl, 0, 1)
     screen.level(7)
     screen.rect(90, 10, prog * 38, 2)
     screen.fill()
@@ -1470,7 +1473,7 @@ function init()
     controlspec.new(0.1, 2.0, "lin", 0.01, 0.8, ""))
   params:add_number("probability", "probability", 0, 100, 100)
   params:set_action("probability", function(x) seq.probability = x end)
-  params:add_number("octave_shift", "octave shift", -2, 2, 0)
+  params:add_number("octave_range", "octave range", 1, 4, 2)
   params:add_option("burst_mode", "burst mode", {"off", "on"}, 1)
   params:set_action("burst_mode", function(x) seq.burst_mode = (x == 2) end)
   params:add_control("burst_density", "burst density",
