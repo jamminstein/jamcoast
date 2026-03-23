@@ -344,29 +344,25 @@ local function explorer_evolve()
       if active_palette then
         params:set("scale_type", active_palette.dissolve)
       end
-      -- gentle downward pattern, sparse
-      regen_pattern(DISSOLVE_INTERVALS, 0.5, 0.3, 0.7)
+      -- gentle downward pattern, still audible density
+      regen_pattern(DISSOLVE_INTERVALS, 0.65, 0.4, 0.75)
       -- burst mode off, back to straight sequencing
       params:set("burst_mode", 1)
-      -- LPG on for plucky acoustic decay
-      params:set("lpg_mode", 2)
       -- octave back to center
       params:set("octave_shift", 0)
+      -- open filter back up so we're audible
+      params:set("cutoff", util.clamp(params:get("cutoff"), 1500, 18000))
     end
 
-    -- wavefold retreats toward anchor
+    -- wavefold retreats gently
     local fold = params:get("fold_amt")
-    if scene_anchors then
-      params:set("fold_amt", fold + (scene_anchors.fold_amt - fold) * 0.15)
-    else
-      params:set("fold_amt", util.clamp(fold - 0.04, 0, 1))
-    end
+    params:set("fold_amt", util.clamp(fold - 0.02, 0.05, 1))
 
-    -- FM retreats
-    params:set("fm_amt", util.clamp(params:get("fm_amt") - 0.05, 0, 2))
+    -- FM retreats but keeps some warmth
+    params:set("fm_amt", util.clamp(params:get("fm_amt") - 0.03, 0.05, 2))
 
-    -- filter closes (LPG natural decay)
-    params:set("cutoff", util.clamp(params:get("cutoff") * 0.92, 200, 18000))
+    -- filter closes gently but never below audible range
+    params:set("cutoff", util.clamp(params:get("cutoff") * 0.95, 800, 18000))
 
     -- waveguide fades
     params:set("wg_mix", util.clamp(params:get("wg_mix") - 0.03, 0, 1))
@@ -386,14 +382,14 @@ local function explorer_evolve()
     -- reverb sustains but modulation fades
     params:set("reverb_mod_depth", util.clamp(params:get("reverb_mod_depth") - 0.03, 0, 1))
 
-    -- thin pattern: remove steps gradually
-    if math.random() < 0.25 then
+    -- thin pattern slightly: never go below 4 active steps
+    if math.random() < 0.15 then
       local active = {}
       for i = 1, seq.NUM_STEPS do
         local step = seq.get_step(i)
         if step and step.on then table.insert(active, i) end
       end
-      if #active > 2 then
+      if #active > 4 then
         local idx = active[math.random(#active)]
         seq.set_step(idx, "on", false)
       end
@@ -421,10 +417,6 @@ local function explorer_evolve()
       params:set("root_note", root + math.floor((target - root) * 0.3 + 0.5))
     end
 
-    -- return to filter mode near end
-    if explorer_tick >= explorer_phase_lengths[phase] - 2 then
-      params:set("lpg_mode", 1)
-    end
   end
 
   -- phase transition
@@ -435,7 +427,7 @@ local function explorer_evolve()
     explorer_phase_lengths[explorer_phase] = explorer_phase_lengths[explorer_phase] + math.random(-3, 3)
     explorer_phase_lengths[explorer_phase] = util.clamp(explorer_phase_lengths[explorer_phase], 4, 16)
 
-    -- on return to DRIFT: fresh palette, partial anchor reset, clear overrides
+    -- on return to DRIFT: GUARANTEE sound comes back
     if explorer_phase == 1 then
       -- new palette = new musical journey each cycle
       active_palette = SCALE_PALETTES[math.random(#SCALE_PALETTES)]
@@ -444,15 +436,18 @@ local function explorer_evolve()
         seq.set_step(i, "fold_amt", -1)
         seq.set_step(i, "fm_amt", -1)
       end
-      -- burst mode off
+      -- burst mode off, LPG off, freeze off
       params:set("burst_mode", 1)
-      -- partial anchor pull (don't fully reset — let it evolve over cycles)
-      if scene_anchors then
-        params:set("fold_amt", params:get("fold_amt") + (scene_anchors.fold_amt - params:get("fold_amt")) * 0.3)
-        params:set("cutoff", params:get("cutoff") + (scene_anchors.cutoff - params:get("cutoff")) * 0.3)
-        params:set("reverb_mix", params:get("reverb_mix") + (scene_anchors.reverb_mix - params:get("reverb_mix")) * 0.4)
-        params:set("delay_mix", params:get("delay_mix") + (scene_anchors.delay_mix - params:get("delay_mix")) * 0.4)
-      end
+      params:set("lpg_mode", 1)
+      params:set("delay_freeze", 1)
+      -- FORCE audible state: filter open, some fold, reasonable volume
+      params:set("cutoff", util.clamp(params:get("cutoff"), 2000, 18000))
+      params:set("fold_amt", util.clamp(params:get("fold_amt"), 0.05, 0.8))
+      params:set("fm_amt", util.clamp(params:get("fm_amt"), 0, 0.8))
+      params:set("reverb_mix", util.clamp(params:get("reverb_mix"), 0.05, 0.5))
+      params:set("delay_mix", util.clamp(params:get("delay_mix"), 0.05, 0.5))
+      params:set("radiate", util.clamp(params:get("radiate"), 0, 0.5))
+      params:set("wg_mix", util.clamp(params:get("wg_mix"), 0, 0.3))
       -- root can wander to a new key center
       if math.random() < 0.3 then
         local roots = {36, 38, 40, 41, 43, 45, 48, 50, 52, 53, 55, 57, 60}
