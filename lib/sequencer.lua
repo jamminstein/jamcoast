@@ -26,12 +26,11 @@ function seq.init()
       on = true         -- step active
     }
   end
-  -- default pattern: west coast melodic sequence
-  -- intervals that sound good through a wavefolder
-  local default_notes = {0, 7, 3, 12, 5, -5, 10, 7}
-  local default_vels =  {0.9, 0.7, 0.6, 0.85, 0.8, 0.5, 0.75, 0.65}
-  local default_gates = {0.6, 0.4, 0.8, 0.3, 0.5, 1.0, 0.4, 0.7}
-  local default_on =    {true, true, true, true, true, false, true, true}
+  -- default pattern: spacious west coast sequence
+  local default_notes = {0, 7, 0, 12, 5, 0, -5, 7}
+  local default_vels =  {0.9, 0.7, 0.0, 0.85, 0.6, 0.0, 0.5, 0.75}
+  local default_gates = {0.8, 0.6, 0.5, 0.4, 0.7, 0.5, 1.0, 0.5}
+  local default_on =    {true, true, false, true, true, false, true, false}
   for i = 1, seq.NUM_STEPS do
     seq.steps[i].note = default_notes[i]
     seq.steps[i].vel = default_vels[i]

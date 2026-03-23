@@ -638,7 +638,7 @@ local function start_seq()
   silence_ticks = 0
   seq_clock_id = clock.run(function()
     while true do
-      clock.sync(1/4)
+      clock.sync(1/2)
       if playing then
         advance_step()
         -- safety: if nothing has played for 8 ticks, force a note
