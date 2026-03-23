@@ -459,6 +459,8 @@ local function explorer_evolve()
 end
 
 local function start_explorer()
+  -- don't start if already running
+  if explorer_on then return end
   save_scene_anchors()
   explorer_on = true
   explorer_tick = 0
@@ -466,6 +468,7 @@ local function start_explorer()
   -- reset local phase lengths from current style
   local s = get_style()
   for i = 1, 4 do explorer_pl[i] = s.phase_lengths[i] end
+  print("explorer: started, style=" .. EXPLORER_STYLE_NAMES[explorer_style])
   explorer_clock_id = clock.run(function()
     while explorer_on do
       local spd = get_style().speed or 2
@@ -477,6 +480,7 @@ local function start_explorer()
         end
       end
     end
+    print("explorer: clock exited")
   end)
 end
 
@@ -647,7 +651,8 @@ local function start_seq()
     while true do
       clock.sync(1/2)
       if playing then
-        advance_step()
+        local ok, err = pcall(advance_step)
+        if not ok then print("seq error: " .. tostring(err)) end
         -- safety: if nothing has played for 8 ticks, force a note
         if current_note == nil then
           silence_ticks = silence_ticks + 1
@@ -1380,13 +1385,16 @@ function enc(n, d)
     end
 
   elseif current_page == 3 then
-    -- SPACE: E2=reverb size+decay, E3=delay time
+    -- SPACE: E2=reverb (mix+size+decay together), E3=delay (mix+time+fb together)
     if n == 2 then
+      params:delta("reverb_mix", d * 0.015)
       params:delta("reverb_size", d * 0.02)
       params:delta("reverb_decay", d * 0.02)
     elseif n == 3 then
+      params:delta("delay_mix", d * 0.015)
       local dt = params:get("delay_time")
       params:set("delay_time", util.clamp(dt * (1 + d * 0.03), 0.01, 2))
+      params:delta("delay_fb", d * 0.015)
     end
 
   elseif current_page == 4 then
