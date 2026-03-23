@@ -73,42 +73,141 @@ local chaos_y = 32
 local tape_angle = 0       -- morph page reel rotation
 
 -- ======== EXPLORER (bandmate/autopilot) ========
--- 4 phases inspired by Make Noise philosophy:
--- DRIFT: slow evolution, subtle wavefold sweeps, gentle FM (Maths rising)
--- SURGE: energy builds, chaos routes activate, waveguide resonance (DPO peak)
--- RUPTURE: maximum fold + FM, burst mode, delay freeze, wild modulation (Strega feedback)
--- DISSOLVE: thin out, reverb washes, granular textures, LPG plucks (Morphagene decay)
+-- 6 exploration styles, each with 4 phases (DRIFT/SURGE/RUPTURE/DISSOLVE)
+-- styles define HOW the explorer moves through synthesis space
+
+local EXPLORER_STYLE_NAMES = {
+  "SHARED SYSTEM",  -- balanced exploration, the classic Make Noise journey
+  "STREGA",         -- dark drones, feedback, delay-heavy, slow
+  "0-COAST",        -- melodic, playful, wavefold-focused, rhythmic
+  "WOGGLEBUG",      -- maximum chaos, fast changes, wild modulation
+  "ERBE-VERB",      -- space as instrument, reverb washes, shimmer
+  "MORPHAGENE",     -- textural, granular-focused, tape manipulation
+}
+
+-- style parameters: multipliers and biases that shape each phase
+-- speed: how fast phases evolve (clock sync beats)
+-- aggression: how much params change per tick (0-1)
+-- chaos_love: how much chaos routing gets used (0-1)
+-- space_love: how much reverb/delay gets used (0-1)
+-- fold_love: how much wavefolder gets driven (0-1)
+-- fm_love: how much FM gets used (0-1)
+-- wg_love: how much waveguide gets used (0-1)
+-- melody_wild: how much melody/root wanders (0-1)
+-- density_min: minimum pattern density
+-- phase_lengths: {drift, surge, rupture, dissolve} in bars
+-- intervals: {drift, surge, rupture, dissolve} note pools
+local EXPLORER_STYLES = {
+  -- 1: SHARED SYSTEM — balanced, the full Make Noise experience
+  {
+    speed = 2, aggression = 0.5, chaos_love = 0.6, space_love = 0.5,
+    fold_love = 0.7, fm_love = 0.5, wg_love = 0.4, melody_wild = 0.5,
+    density_min = 5,
+    phase_lengths = {10, 8, 6, 10},
+    intervals = {
+      {0, 2, 3, 5, 7, -5, 12},
+      {0, 3, 5, 7, 10, 12, -7, -12, 14},
+      {0, 1, 6, 7, 11, 13, -6, -11, -1, 15},
+      {0, -2, -5, -7, -12, 7, 5},
+    },
+    palettes = {
+      {1, 3, 7, 2}, {3, 5, 4, 1}, {6, 1, 7, 6}, {2, 4, 7, 3}, {1, 2, 4, 5},
+    },
+  },
+  -- 2: STREGA — dark, slow, feedback-heavy, drone-focused
+  {
+    speed = 4, aggression = 0.3, chaos_love = 0.4, space_love = 0.9,
+    fold_love = 0.4, fm_love = 0.3, wg_love = 0.7, melody_wild = 0.2,
+    density_min = 3,
+    phase_lengths = {14, 10, 8, 14},
+    intervals = {
+      {0, 0, -12, 7, 5},           -- root-heavy, drone
+      {0, -5, -7, 7, 12, -12},     -- wide, dark
+      {0, 1, -1, 6, -6, 11},       -- dissonant
+      {0, 0, 0, -12, 7},           -- return to root drone
+    },
+    palettes = {
+      {2, 4, 7, 2}, {4, 2, 7, 4}, {2, 7, 7, 2}, {3, 4, 7, 3},
+    },
+  },
+  -- 3: 0-COAST — melodic, playful, wavefold-centric, rhythmic
+  {
+    speed = 1, aggression = 0.6, chaos_love = 0.3, space_love = 0.2,
+    fold_love = 1.0, fm_love = 0.6, wg_love = 0.1, melody_wild = 0.7,
+    density_min = 6,
+    phase_lengths = {8, 6, 4, 8},
+    intervals = {
+      {0, 2, 4, 5, 7, 9, 12},          -- major-ish, bright
+      {0, 3, 5, 7, 10, 12, 14, 7, 5},  -- pentatonic energy
+      {0, 1, 3, 6, 8, 10, 13, 15},     -- chromatic runs
+      {0, 4, 7, 12, -5, 5},            -- simple, resolved
+    },
+    palettes = {
+      {1, 6, 7, 1}, {6, 1, 5, 6}, {1, 5, 7, 1}, {5, 6, 7, 5},
+    },
+  },
+  -- 4: WOGGLEBUG — maximum chaos, fast, unpredictable, wild
+  {
+    speed = 1, aggression = 0.9, chaos_love = 1.0, space_love = 0.4,
+    fold_love = 0.8, fm_love = 0.9, wg_love = 0.5, melody_wild = 1.0,
+    density_min = 4,
+    phase_lengths = {5, 5, 5, 5},
+    intervals = {
+      {0, 1, -1, 5, -5, 7, -7, 12, -12},
+      {0, 3, 6, -3, -6, 11, -11, 14, 1},
+      {0, 1, 2, -1, -2, 6, -6, 11, -11, 13, -13},
+      {0, 7, -7, 12, -12, 5, -5, 1, -1},
+    },
+    palettes = {
+      {7, 7, 7, 7}, {2, 4, 7, 2}, {4, 7, 7, 4}, {7, 2, 4, 7},
+    },
+  },
+  -- 5: ERBE-VERB — space as instrument, slow, reverb washes, shimmer
+  {
+    speed = 3, aggression = 0.3, chaos_love = 0.5, space_love = 1.0,
+    fold_love = 0.3, fm_love = 0.2, wg_love = 0.6, melody_wild = 0.3,
+    density_min = 4,
+    phase_lengths = {12, 8, 6, 14},
+    intervals = {
+      {0, 7, 12, 5, -12},              -- open, consonant
+      {0, 5, 7, 12, 14, 19},           -- high, shimmering
+      {0, 3, 7, 10, 14, -5},           -- modal
+      {0, 0, 7, -5, 12},              -- sparse, resonant
+    },
+    palettes = {
+      {1, 3, 5, 1}, {3, 1, 3, 5}, {5, 3, 7, 1}, {1, 5, 3, 1},
+    },
+  },
+  -- 6: MORPHAGENE — textural, granular emphasis, tape manipulation
+  {
+    speed = 2, aggression = 0.5, chaos_love = 0.6, space_love = 0.6,
+    fold_love = 0.5, fm_love = 0.4, wg_love = 0.3, melody_wild = 0.4,
+    density_min = 4,
+    phase_lengths = {10, 8, 6, 12},
+    intervals = {
+      {0, 3, 5, 7, -5, 12},
+      {0, 5, 7, 10, 12, -7},
+      {0, 1, 3, 6, 10, -3, -6},
+      {0, -7, -5, 5, 7, 12},
+    },
+    palettes = {
+      {3, 5, 7, 3}, {2, 3, 7, 2}, {6, 2, 4, 6}, {3, 6, 7, 3},
+    },
+  },
+}
 
 local explorer_on = false
 local explorer_clock_id = nil
 local explorer_phase = 1
 local explorer_tick = 0
-local explorer_phase_lengths = {10, 8, 6, 10} -- bars per phase
+local explorer_style = 1
 local EXPLORER_PHASES = {"DRIFT", "SURGE", "RUPTURE", "DISSOLVE"}
-
--- scene anchors: saved param values to drift back toward
+local active_palette = nil
 local scene_anchors = nil
 
--- scale palettes: each phase can shift the musical mood
-local SCALE_PALETTES = {
-  -- palette 1: bright to dark journey
-  {drift = 1, surge = 3, rupture = 7, dissolve = 2},  -- MAJ->DOR->CHR->MIN
-  -- palette 2: modal exploration
-  {drift = 3, surge = 5, rupture = 4, dissolve = 1},  -- DOR->MIX->PHR->MAJ
-  -- palette 3: pentatonic to chromatic
-  {drift = 6, surge = 1, rupture = 7, dissolve = 6},  -- PNT->MAJ->CHR->PNT
-  -- palette 4: dark descent
-  {drift = 2, surge = 4, rupture = 7, dissolve = 3},  -- MIN->PHR->CHR->DOR
-  -- palette 5: tension and release
-  {drift = 1, surge = 2, rupture = 4, dissolve = 5},  -- MAJ->MIN->PHR->MIX
-}
-local active_palette = nil
-
--- melodic interval pools per phase
-local DRIFT_INTERVALS = {0, 2, 3, 5, 7, -5, 12}
-local SURGE_INTERVALS = {0, 3, 5, 7, 10, 12, -7, -12, 14}
-local RUPTURE_INTERVALS = {0, 1, 6, 7, 11, 13, -6, -11, -1, 15}
-local DISSOLVE_INTERVALS = {0, -2, -5, -7, -12, 7, 5}
+local function get_style()
+  return EXPLORER_STYLES[explorer_style] or EXPLORER_STYLES[1]
+end
 
 local function save_scene_anchors()
   scene_anchors = {
@@ -129,318 +228,219 @@ local function save_scene_anchors()
     root_note = params:get("root_note"),
     octave_shift = params:get("octave_shift"),
   }
-  -- pick a random palette for this exploration cycle
-  active_palette = SCALE_PALETTES[math.random(#SCALE_PALETTES)]
+  local s = get_style()
+  local pals = s.palettes
+  local pal = pals[math.random(#pals)]
+  active_palette = {drift = pal[1], surge = pal[2], rupture = pal[3], dissolve = pal[4]}
 end
 
--- regenerate the sequencer pattern with musical intent
-local function regen_pattern(pool, density, vel_range_lo, vel_range_hi)
+local function regen_pattern(pool, density, vel_lo, vel_hi)
   for i = 1, seq.NUM_STEPS do
     seq.set_step(i, "note", pool[math.random(#pool)])
-    seq.set_step(i, "vel", vel_range_lo + math.random() * (vel_range_hi - vel_range_lo))
+    seq.set_step(i, "vel", vel_lo + math.random() * (vel_hi - vel_lo))
     seq.set_step(i, "gate_len", 0.2 + math.random() * 0.8)
     seq.set_step(i, "on", math.random() < density)
     seq.set_step(i, "fold_amt", -1)
     seq.set_step(i, "fm_amt", -1)
   end
-  -- always keep step 1 on for downbeat
   seq.set_step(1, "on", true)
+end
+
+-- helper: nudge a param with style-scaled amount
+local function nudge(name, amount, lo, hi)
+  params:set(name, util.clamp(params:get(name) + amount, lo, hi))
 end
 
 local function explorer_evolve()
   explorer_tick = explorer_tick + 1
+  local s = get_style()
   local phase = explorer_phase
-  local progress = explorer_tick / explorer_phase_lengths[phase]
+  local a = s.aggression
+  local pl = s.phase_lengths
+  local progress = explorer_tick / pl[phase]
 
+  -- ---- PHASE 1: DRIFT ----
   if phase == 1 then
-    -- DRIFT: Maths-like slow rise. the sound slowly comes alive.
-    -- scale shifts to set the mood. melody evolves gently.
-
-    -- set scale for this phase
     if explorer_tick == 1 then
-      if active_palette then
-        params:set("scale_type", active_palette.drift)
-      end
-      -- regenerate pattern with gentle intervals
-      regen_pattern(DRIFT_INTERVALS, 0.7, 0.5, 0.8)
+      if active_palette then params:set("scale_type", active_palette.drift) end
+      regen_pattern(s.intervals[1], 0.6 + s.fold_love * 0.2, 0.4, 0.8)
+      params:set("cutoff", util.clamp(params:get("cutoff"), 1500, 18000))
     end
 
-    -- wavefold: slow sweep upward
-    local fold = params:get("fold_amt")
-    params:set("fold_amt", util.clamp(fold + 0.02 + math.random() * 0.02, 0, 0.6))
+    nudge("fold_amt", (0.02 + math.random() * 0.02) * s.fold_love, 0.05, 0.6 * s.fold_love + 0.3)
+    nudge("fm_amt", 0.015 * s.fm_love, 0, 0.8 * s.fm_love)
+    nudge("cutoff", (100 + math.random(200)) * a, 800, 10000)
+    nudge("wg_mix", 0.02 * s.wg_love, 0, 0.5 * s.wg_love)
+    nudge("chaos_to_fold", 0.02 * s.chaos_love, 0, 0.5 * s.chaos_love)
+    nudge("correlation", -0.02 * s.chaos_love, 0.2, 0.95)
+    nudge("reverb_mix", 0.01 * s.space_love, 0.05, 0.4 * s.space_love)
 
-    -- shape drift
-    if math.random() < 0.25 then
-      local shape = params:get("shape")
-      params:set("shape", util.clamp(shape + (math.random() - 0.5) * 0.15, 0, 1))
+    if math.random() < 0.25 * a then
+      params:set("shape", util.clamp(params:get("shape") + (math.random() - 0.5) * 0.15, 0, 1))
     end
-
-    -- FM slowly rises
-    params:set("fm_amt", util.clamp(params:get("fm_amt") + 0.015, 0, 0.8))
-
-    -- filter opens gradually
-    params:set("cutoff", util.clamp(params:get("cutoff") + 100 + math.random(200), 200, 10000))
-
-    -- chaos stirs: correlation drops, routes activate
-    params:set("correlation", util.clamp(params:get("correlation") - 0.02, 0.2, 0.95))
-    params:set("chaos_to_fold", util.clamp(params:get("chaos_to_fold") + 0.02, 0, 0.5))
-
-    -- melodic evolution: mutate notes within scale
-    if math.random() < 0.35 then
+    if math.random() < 0.35 * a then
       local i = math.random(1, seq.NUM_STEPS)
-      local step = seq.get_step(i)
-      if step then
-        local new_note = DRIFT_INTERVALS[math.random(#DRIFT_INTERVALS)]
-        seq.set_step(i, "note", new_note)
-      end
+      seq.set_step(i, "note", s.intervals[1][math.random(#s.intervals[1])])
     end
-
-    -- occasionally shift root by a 4th or 5th
-    if math.random() < 0.08 then
+    if math.random() < 0.08 * s.melody_wild then
       local shifts = {-7, -5, 5, 7}
-      local root = params:get("root_note")
-      params:set("root_note", util.clamp(root + shifts[math.random(#shifts)], 24, 84))
+      nudge("root_note", shifts[math.random(#shifts)], 24, 84)
     end
 
+  -- ---- PHASE 2: SURGE ----
   elseif phase == 2 then
-    -- SURGE: DPO at full power. energy builds. wider intervals.
-    -- scale shifts to something brighter/more complex.
-
     if explorer_tick == 1 then
-      if active_palette then
-        params:set("scale_type", active_palette.surge)
-      end
-      -- regenerate with wider intervals and higher density
-      regen_pattern(SURGE_INTERVALS, 0.85, 0.6, 0.95)
-      -- octave up for energy
+      if active_palette then params:set("scale_type", active_palette.surge) end
+      regen_pattern(s.intervals[2], 0.75 + a * 0.15, 0.6, 0.95)
       params:set("octave_shift", math.random(0, 1))
     end
 
-    -- wavefold pushes higher
-    params:set("fold_amt", util.clamp(params:get("fold_amt") + 0.03, 0, 0.85))
+    nudge("fold_amt", 0.03 * s.fold_love, 0.05, 0.85 * s.fold_love + 0.1)
+    nudge("wg_mix", 0.03 * s.wg_love, 0, 0.6 * s.wg_love)
+    nudge("radiate", 0.03 * a, 0, 0.7)
+    nudge("chaos_to_fold", 0.03 * s.chaos_love, 0, 0.7 * s.chaos_love)
+    nudge("chaos_to_cutoff", 0.02 * s.chaos_love, 0, 0.5 * s.chaos_love)
+    nudge("delay_mix", 0.02 * s.space_love, 0.05, 0.5 * s.space_love)
+    nudge("delay_fb", 0.02 * s.space_love, 0.1, 0.75 * s.space_love)
+    nudge("reverb_mix", 0.015 * s.space_love, 0.05, 0.5 * s.space_love)
 
-    -- FM ratio shifts for metallic timbres (DPO cross-mod)
-    if math.random() < 0.3 then
+    if math.random() < 0.3 * a then
       local ratios = {1.5, 2, 2.5, 3, 0.75, 1.33, 3.5}
       params:set("fm_ratio", ratios[math.random(#ratios)])
+      nudge("fm_amt", 0.1 * s.fm_love, 0, 1.2 * s.fm_love)
     end
-
-    -- waveguide resonance enters (Mysteron)
-    params:set("wg_mix", util.clamp(params:get("wg_mix") + 0.03, 0, 0.6))
-
-    -- QPAS radiate opens (formant vowels)
-    params:set("radiate", util.clamp(params:get("radiate") + 0.03, 0, 0.7))
-
-    -- chaos routes build
-    params:set("chaos_to_fold", util.clamp(params:get("chaos_to_fold") + 0.03, 0, 0.7))
-    params:set("chaos_to_cutoff", util.clamp(params:get("chaos_to_cutoff") + 0.02, 0, 0.5))
-
-    -- pattern mutations: swap notes, add accents
-    if math.random() < 0.3 then
+    if math.random() < 0.3 * a then
       local i = math.random(1, seq.NUM_STEPS)
-      seq.set_step(i, "note", SURGE_INTERVALS[math.random(#SURGE_INTERVALS)])
-      seq.set_step(i, "vel", 0.8 + math.random() * 0.2)
+      seq.set_step(i, "note", s.intervals[2][math.random(#s.intervals[2])])
+      seq.set_step(i, "vel", 0.7 + math.random() * 0.3)
+    end
+    if math.random() < 0.25 * a then
+      seq.set_step(math.random(1, seq.NUM_STEPS), "on", true)
+    end
+    if math.random() < 0.12 * s.melody_wild then
+      nudge("root_note", math.random(-3, 4), 24, 84)
     end
 
-    -- activate silent steps
-    if math.random() < 0.25 then
-      local i = math.random(1, seq.NUM_STEPS)
-      seq.set_step(i, "on", true)
-    end
-
-    -- gate length variation
-    if math.random() < 0.2 then
-      local i = math.random(1, seq.NUM_STEPS)
-      seq.set_step(i, "gate_len", 0.1 + math.random() * 0.5)
-    end
-
-    -- delay builds (Strega warming up)
-    params:set("delay_mix", util.clamp(params:get("delay_mix") + 0.02, 0, 0.5))
-    params:set("delay_fb", util.clamp(params:get("delay_fb") + 0.02, 0.1, 0.75))
-
-    -- root note wanders: up by 2nds and 3rds
-    if math.random() < 0.12 then
-      local root = params:get("root_note")
-      params:set("root_note", util.clamp(root + math.random(-3, 4), 24, 84))
-    end
-
+  -- ---- PHASE 3: RUPTURE ----
   elseif phase == 3 then
-    -- RUPTURE: Strega feedback chaos. chromatic territory.
-    -- everything feeds back on itself. beautiful destruction.
-
     if explorer_tick == 1 then
-      if active_palette then
-        params:set("scale_type", active_palette.rupture)
+      if active_palette then params:set("scale_type", active_palette.rupture) end
+      regen_pattern(s.intervals[3], 0.8 + a * 0.15, 0.7, 1.0)
+      if s.chaos_love > 0.5 then
+        params:set("burst_mode", 2)
+        params:set("burst_density", 0.4 + math.random() * 0.4)
       end
-      -- rupture: dense, dissonant, chaotic intervals
-      regen_pattern(RUPTURE_INTERVALS, 0.9, 0.7, 1.0)
-      -- burst mode on for probabilistic triggering
-      params:set("burst_mode", 2)
-      params:set("burst_density", 0.4 + math.random() * 0.4)
     end
 
-    -- wavefold maxes out
-    params:set("fold_amt", util.clamp(params:get("fold_amt") + 0.04, 0, 1))
+    nudge("fold_amt", 0.04 * s.fold_love, 0.05, 1.0)
+    nudge("chaos_to_fold", 0.05 * s.chaos_love, 0, 0.9 * s.chaos_love)
+    nudge("chaos_to_cutoff", 0.04 * s.chaos_love, 0, 0.8 * s.chaos_love)
+    nudge("chaos_to_delay", 0.03 * s.chaos_love, 0, 0.6 * s.chaos_love)
+    nudge("correlation", -0.04 * s.chaos_love, 0.1, 0.9)
+    nudge("reverb_decay", 0.04 * s.space_love, 0.1, 0.95)
+    nudge("reverb_mix", 0.02 * s.space_love, 0.05, 0.5)
+    nudge("reverb_mod_depth", 0.03 * s.space_love, 0, 0.6)
 
-    -- FM surges wildly
-    if math.random() < 0.4 then
-      params:set("fm_amt", 0.5 + math.random() * 1.2)
-      -- non-integer ratios for inharmonic metallic tones
+    if math.random() < 0.4 * s.fm_love then
+      params:set("fm_amt", 0.3 + math.random() * 1.0 * s.fm_love)
       if math.random() < 0.5 then
         params:set("fm_ratio", 0.5 + math.random() * 4)
       end
     end
-
-    -- chaos routing maximal
-    params:set("chaos_to_fold", util.clamp(params:get("chaos_to_fold") + 0.05, 0, 0.9))
-    params:set("chaos_to_cutoff", util.clamp(params:get("chaos_to_cutoff") + 0.04, 0, 0.8))
-    params:set("chaos_to_delay", util.clamp(params:get("chaos_to_delay") + 0.03, 0, 0.6))
-
-    -- correlation drops: wogglebug goes wild
-    params:set("correlation", util.clamp(params:get("correlation") - 0.04, 0.1, 0.9))
-
-    -- delay freeze moments (Mimeophon hold)
-    if math.random() < 0.15 then
+    if math.random() < 0.15 * s.space_love then
       params:set("delay_freeze", 2)
     elseif math.random() < 0.3 then
       params:set("delay_freeze", 1)
     end
-
-    -- per-step fold/FM overrides: each step gets its own timbre
-    if math.random() < 0.4 then
+    if math.random() < 0.4 * a then
       local i = math.random(1, seq.NUM_STEPS)
-      seq.set_step(i, "fold_amt", math.random() * 0.9)
-      seq.set_step(i, "fm_amt", math.random() * 1.5)
+      seq.set_step(i, "fold_amt", math.random() * 0.9 * s.fold_love)
+      seq.set_step(i, "fm_amt", math.random() * 1.5 * s.fm_love)
     end
-
-    -- octave jumps for energy
-    if math.random() < 0.1 then
+    if math.random() < 0.1 * s.melody_wild then
       params:set("octave_shift", math.random(-1, 2))
     end
-
-    -- root note: chromatic wandering
-    if math.random() < 0.15 then
-      local root = params:get("root_note")
-      params:set("root_note", util.clamp(root + math.random(-5, 5), 24, 84))
+    if math.random() < 0.15 * s.melody_wild then
+      nudge("root_note", math.random(-5, 5), 24, 84)
     end
-
-    -- pattern mutations: wild note replacement
-    if math.random() < 0.3 then
+    if math.random() < 0.3 * a then
       local i = math.random(1, seq.NUM_STEPS)
-      seq.set_step(i, "note", RUPTURE_INTERVALS[math.random(#RUPTURE_INTERVALS)])
-      seq.set_step(i, "gate_len", 0.05 + math.random() * 0.3)
+      seq.set_step(i, "note", s.intervals[3][math.random(#s.intervals[3])])
+      seq.set_step(i, "gate_len", 0.05 + math.random() * 0.4)
     end
 
-    -- reverb toward infinite (Erbe-Verb)
-    params:set("reverb_decay", util.clamp(params:get("reverb_decay") + 0.04, 0, 0.95))
-    params:set("reverb_mix", util.clamp(params:get("reverb_mix") + 0.02, 0, 0.5))
-    params:set("reverb_mod_depth", util.clamp(params:get("reverb_mod_depth") + 0.03, 0, 0.6))
-
+  -- ---- PHASE 4: DISSOLVE ----
   elseif phase == 4 then
-    -- DISSOLVE: Morphagene decay. LPG plucks. reverb washes.
-    -- the sound dissolves. melody simplifies. space opens.
-
     if explorer_tick == 1 then
-      if active_palette then
-        params:set("scale_type", active_palette.dissolve)
-      end
-      -- gentle downward pattern, still audible density
-      regen_pattern(DISSOLVE_INTERVALS, 0.65, 0.4, 0.75)
-      -- burst mode off, back to straight sequencing
+      if active_palette then params:set("scale_type", active_palette.dissolve) end
+      regen_pattern(s.intervals[4], 0.55 + a * 0.15, 0.4, 0.75)
       params:set("burst_mode", 1)
-      -- octave back to center
       params:set("octave_shift", 0)
-      -- open filter back up so we're audible
       params:set("cutoff", util.clamp(params:get("cutoff"), 1500, 18000))
+      params:set("delay_freeze", 1)
     end
 
-    -- wavefold retreats gently
-    local fold = params:get("fold_amt")
-    params:set("fold_amt", util.clamp(fold - 0.02, 0.05, 1))
+    nudge("fold_amt", -0.02 * a, 0.05, 1)
+    nudge("fm_amt", -0.03 * a, 0.05, 2)
+    nudge("cutoff", params:get("cutoff") * -0.04 * a, 800, 18000)
+    nudge("wg_mix", -0.02, 0, 1)
+    nudge("correlation", 0.04 * (1 - s.chaos_love + 0.3), 0.2, 0.95)
+    nudge("chaos_to_fold", -0.03, 0, 1)
+    nudge("chaos_to_cutoff", -0.02, 0, 1)
+    nudge("chaos_to_delay", -0.02, 0, 1)
+    nudge("delay_mix", -0.015, 0.05, 1)
+    nudge("reverb_mod_depth", -0.02, 0, 1)
 
-    -- FM retreats but keeps some warmth
-    params:set("fm_amt", util.clamp(params:get("fm_amt") - 0.03, 0.05, 2))
+    -- space-loving styles: reverb sustains longer in dissolve
+    if s.space_love > 0.7 then
+      nudge("reverb_mix", 0.01, 0.05, 0.5)
+    end
 
-    -- filter closes gently but never below audible range
-    params:set("cutoff", util.clamp(params:get("cutoff") * 0.95, 800, 18000))
-
-    -- waveguide fades
-    params:set("wg_mix", util.clamp(params:get("wg_mix") - 0.03, 0, 1))
-
-    -- chaos calms: correlation rises (smooth, melodic drift)
-    params:set("correlation", util.clamp(params:get("correlation") + 0.04, 0, 0.95))
-
-    -- chaos routes decay
-    params:set("chaos_to_fold", util.clamp(params:get("chaos_to_fold") - 0.04, 0, 1))
-    params:set("chaos_to_cutoff", util.clamp(params:get("chaos_to_cutoff") - 0.03, 0, 1))
-    params:set("chaos_to_delay", util.clamp(params:get("chaos_to_delay") - 0.02, 0, 1))
-
-    -- delay freeze off, delay fades
-    params:set("delay_freeze", 1)
-    params:set("delay_mix", util.clamp(params:get("delay_mix") - 0.02, 0, 1))
-
-    -- reverb sustains but modulation fades
-    params:set("reverb_mod_depth", util.clamp(params:get("reverb_mod_depth") - 0.03, 0, 1))
-
-    -- thin pattern slightly: never go below 4 active steps
-    if math.random() < 0.15 then
+    -- thin pattern slightly but never below density_min
+    if math.random() < 0.12 then
       local active = {}
       for i = 1, seq.NUM_STEPS do
         local step = seq.get_step(i)
         if step and step.on then table.insert(active, i) end
       end
-      if #active > 4 then
-        local idx = active[math.random(#active)]
-        seq.set_step(idx, "on", false)
+      if #active > s.density_min then
+        seq.set_step(active[math.random(#active)], "on", false)
       end
     end
-
-    -- notes drift downward
-    if math.random() < 0.25 then
-      local i = math.random(1, seq.NUM_STEPS)
-      local step = seq.get_step(i)
-      if step then
-        seq.set_step(i, "note", DISSOLVE_INTERVALS[math.random(#DISSOLVE_INTERVALS)])
-      end
-    end
-
-    -- longer gates: notes ring out and decay
     if math.random() < 0.2 then
       local i = math.random(1, seq.NUM_STEPS)
-      seq.set_step(i, "gate_len", 0.8 + math.random() * 1.2)
+      seq.set_step(i, "note", s.intervals[4][math.random(#s.intervals[4])])
+      seq.set_step(i, "gate_len", 0.6 + math.random() * 1.0)
     end
-
-    -- root drifts back toward home
     if scene_anchors and math.random() < 0.15 then
       local root = params:get("root_note")
       local target = scene_anchors.root_note
       params:set("root_note", root + math.floor((target - root) * 0.3 + 0.5))
     end
-
   end
 
-  -- phase transition
-  if explorer_tick >= explorer_phase_lengths[phase] then
+  -- ---- PHASE TRANSITION ----
+  if explorer_tick >= pl[phase] then
     explorer_tick = 0
     explorer_phase = (explorer_phase % 4) + 1
-    -- randomize next phase length (keep it unpredictable like Wogglebug)
-    explorer_phase_lengths[explorer_phase] = explorer_phase_lengths[explorer_phase] + math.random(-3, 3)
-    explorer_phase_lengths[explorer_phase] = util.clamp(explorer_phase_lengths[explorer_phase], 4, 16)
+    -- randomize next phase length
+    local s2 = get_style()
+    local base = s2.phase_lengths[explorer_phase]
+    local jitter = math.random(-3, 3)
+    s2.phase_lengths[explorer_phase] = util.clamp(base + jitter, 3, 18)
 
-    -- on return to DRIFT: GUARANTEE sound comes back
+    -- on return to DRIFT: guarantee sound
     if explorer_phase == 1 then
-      -- new palette = new musical journey each cycle
-      active_palette = SCALE_PALETTES[math.random(#SCALE_PALETTES)]
-      -- clear per-step overrides
+      local pals = s2.palettes
+      local pal = pals[math.random(#pals)]
+      active_palette = {drift = pal[1], surge = pal[2], rupture = pal[3], dissolve = pal[4]}
       for i = 1, seq.NUM_STEPS do
         seq.set_step(i, "fold_amt", -1)
         seq.set_step(i, "fm_amt", -1)
       end
-      -- burst mode off, LPG off, freeze off
       params:set("burst_mode", 1)
       params:set("lpg_mode", 1)
       params:set("delay_freeze", 1)
-      -- FORCE audible state: filter open, some fold, reasonable volume
       params:set("cutoff", util.clamp(params:get("cutoff"), 2000, 18000))
       params:set("fold_amt", util.clamp(params:get("fold_amt"), 0.05, 0.8))
       params:set("fm_amt", util.clamp(params:get("fm_amt"), 0, 0.8))
@@ -448,7 +448,6 @@ local function explorer_evolve()
       params:set("delay_mix", util.clamp(params:get("delay_mix"), 0.05, 0.5))
       params:set("radiate", util.clamp(params:get("radiate"), 0, 0.5))
       params:set("wg_mix", util.clamp(params:get("wg_mix"), 0, 0.3))
-      -- root can wander to a new key center
       if math.random() < 0.3 then
         local roots = {36, 38, 40, 41, 43, 45, 48, 50, 52, 53, 55, 57, 60}
         params:set("root_note", roots[math.random(#roots)])
@@ -464,9 +463,10 @@ local function start_explorer()
   explorer_on = true
   explorer_tick = 0
   explorer_phase = 1
+  local s = get_style()
   explorer_clock_id = clock.run(function()
     while explorer_on do
-      clock.sync(2) -- evolve every 2 beats
+      clock.sync(s.speed)
       if explorer_on and playing then
         explorer_evolve()
       end
@@ -480,13 +480,11 @@ local function stop_explorer()
     clock.cancel(explorer_clock_id)
     explorer_clock_id = nil
   end
-  -- restore scene anchors
   if scene_anchors then
     for name, target in pairs(scene_anchors) do
       params:set(name, target)
     end
   end
-  -- clear per-step overrides
   for i = 1, seq.NUM_STEPS do
     seq.set_step(i, "fold_amt", -1)
     seq.set_step(i, "fm_amt", -1)
@@ -494,6 +492,7 @@ local function stop_explorer()
   end
   params:set("delay_freeze", 1)
   params:set("lpg_mode", 1)
+  params:set("burst_mode", 1)
 end
 
 -- ======== MIDI HELPERS ========
@@ -631,14 +630,32 @@ local function advance_step()
   screen_dirty = true
 end
 
+local silence_ticks = 0
+
 local function start_seq()
   seq.reset()
   playing = true
+  silence_ticks = 0
   seq_clock_id = clock.run(function()
     while true do
       clock.sync(1/4)
       if playing then
         advance_step()
+        -- safety: if nothing has played for 8 ticks, force a note
+        if current_note == nil then
+          silence_ticks = silence_ticks + 1
+          if silence_ticks >= 8 then
+            local root = params:get("root_note")
+            note_on(root, 0.7)
+            clock.run(function()
+              clock.sleep(clock.get_beat_sec() * 0.25)
+              note_off()
+            end)
+            silence_ticks = 0
+          end
+        else
+          silence_ticks = 0
+        end
       end
     end
   end)
@@ -1264,14 +1281,19 @@ local function draw_chaos_page()
   screen.rect(98, 51, c2d * 30, 3)
   screen.fill()
 
-  -- correlation display
-  screen.level(7)
+  -- style selector (E2)
+  screen.level(12)
   screen.move(2, 20)
+  screen.text(EXPLORER_STYLE_NAMES[explorer_style])
+
+  -- correlation (E3)
+  screen.level(7)
+  screen.move(2, 30)
   screen.text("CORR " .. string.format("%.2f", params:get("correlation")))
 
-  -- explorer toggle hint
+  -- explorer toggle (K3)
   screen.level(explorer_on and 15 or 5)
-  screen.move(2, 30)
+  screen.move(2, 40)
   screen.text("K3:" .. (explorer_on and "EXPLORING" or "explore"))
 
   draw_step_indicator()
@@ -1369,12 +1391,10 @@ function enc(n, d)
     end
 
   elseif current_page == 5 then
-    -- CHAOS: E2=rates, E3=correlation
+    -- CHAOS: E2=explorer style, E3=correlation
     if n == 2 then
-      local sr = params:get("smooth_rate")
-      local st = params:get("stepped_rate")
-      params:set("smooth_rate", util.clamp(sr * (1 + d * 0.05), 0.01, 20))
-      params:set("stepped_rate", util.clamp(st * (1 + d * 0.05), 0.01, 20))
+      explorer_style = util.clamp(explorer_style + d, 1, #EXPLORER_STYLE_NAMES)
+      params:set("explorer_style", explorer_style, true)
     elseif n == 3 then
       params:delta("correlation", d * 0.02)
     end
@@ -1573,7 +1593,7 @@ function init()
     controlspec.new(0, 1, "lin", 0.01, 0, ""))
 
   -- CHAOS (Wogglebug)
-  params:add_group("CHAOS", 8)
+  params:add_group("CHAOS", 9)
   params:add_control("smooth_rate", "smooth rate",
     controlspec.new(0.01, 20, "exp", 0.01, 0.5, "Hz"))
   params:add_control("stepped_rate", "stepped rate",
@@ -1588,6 +1608,10 @@ function init()
     controlspec.new(0, 1, "lin", 0.01, 0, ""))
   params:add_control("chaos_to_delay", "chaos > delay",
     controlspec.new(0, 1, "lin", 0.01, 0, ""))
+  params:add_option("explorer_style", "explorer style", EXPLORER_STYLE_NAMES, 1)
+  params:set_action("explorer_style", function(x)
+    explorer_style = x
+  end)
   params:add_option("explorer_mode", "explorer", {"off", "on"}, 1)
   params:set_action("explorer_mode", function(x)
     if x == 2 and not explorer_on then start_explorer()
