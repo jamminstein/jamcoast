@@ -45,6 +45,7 @@ local midi_out_device = nil
 local midi_in_device = nil
 local opxy_device = nil
 local current_note = nil -- for monophonic note tracking
+local k2_hold_time = 0   -- for long-press detection
 
 -- scale
 local scale_notes = {}
@@ -70,6 +71,313 @@ local chaos_trail = {}     -- chaos page random walk trail
 local chaos_x = 64         -- chaos walk position
 local chaos_y = 32
 local tape_angle = 0       -- morph page reel rotation
+
+-- ======== EXPLORER (bandmate/autopilot) ========
+-- 4 phases inspired by Make Noise philosophy:
+-- DRIFT: slow evolution, subtle wavefold sweeps, gentle FM (Maths rising)
+-- SURGE: energy builds, chaos routes activate, waveguide resonance (DPO peak)
+-- RUPTURE: maximum fold + FM, burst mode, delay freeze, wild modulation (Strega feedback)
+-- DISSOLVE: thin out, reverb washes, granular textures, LPG plucks (Morphagene decay)
+
+local explorer_on = false
+local explorer_clock_id = nil
+local explorer_phase = 1
+local explorer_tick = 0
+local explorer_phase_lengths = {10, 8, 6, 10} -- bars per phase
+local EXPLORER_PHASES = {"DRIFT", "SURGE", "RUPTURE", "DISSOLVE"}
+
+-- scene anchors: saved param values to drift back toward
+local scene_anchors = nil
+
+local function save_scene_anchors()
+  scene_anchors = {
+    fold_amt = params:get("fold_amt"),
+    fm_amt = params:get("fm_amt"),
+    cutoff = params:get("cutoff"),
+    radiate = params:get("radiate"),
+    wg_mix = params:get("wg_mix"),
+    delay_mix = params:get("delay_mix"),
+    delay_fb = params:get("delay_fb"),
+    reverb_mix = params:get("reverb_mix"),
+    reverb_decay = params:get("reverb_decay"),
+    chaos_to_fold = params:get("chaos_to_fold"),
+    chaos_to_cutoff = params:get("chaos_to_cutoff"),
+    correlation = params:get("correlation"),
+    shape = params:get("shape"),
+  }
+end
+
+local function explorer_evolve()
+  explorer_tick = explorer_tick + 1
+  local phase = explorer_phase
+  local progress = explorer_tick / explorer_phase_lengths[phase]
+
+  if phase == 1 then
+    -- DRIFT: Maths-like slow rise. subtle wavefold sweeps, gentle FM.
+    -- the sound slowly comes alive, like patching a new module.
+
+    -- wavefold: slow sweep upward
+    local fold = params:get("fold_amt")
+    params:set("fold_amt", util.clamp(fold + 0.02 + math.random() * 0.02, 0, 0.6))
+
+    -- shape drift
+    if math.random() < 0.2 then
+      local shape = params:get("shape")
+      params:set("shape", util.clamp(shape + (math.random() - 0.5) * 0.1, 0, 1))
+    end
+
+    -- FM slowly rises
+    local fm = params:get("fm_amt")
+    params:set("fm_amt", util.clamp(fm + 0.015, 0, 0.8))
+
+    -- filter opens gradually
+    local cut = params:get("cutoff")
+    params:set("cutoff", util.clamp(cut + 100 + math.random(150), 200, 10000))
+
+    -- chaos starts to stir: correlation drops slightly, routes activate
+    params:set("correlation", util.clamp(params:get("correlation") - 0.02, 0.2, 0.95))
+    params:set("chaos_to_fold", util.clamp(params:get("chaos_to_fold") + 0.02, 0, 0.5))
+
+    -- occasionally mutate a sequence step note
+    if math.random() < 0.25 then
+      local i = math.random(1, seq.NUM_STEPS)
+      local step = seq.get_step(i)
+      if step then
+        seq.set_step(i, "note", step.note + math.random(-2, 3))
+      end
+    end
+
+  elseif phase == 2 then
+    -- SURGE: DPO at full power. waveguide resonance enters.
+    -- energy builds like voltage through Maths cycle mode.
+
+    -- wavefold pushes higher
+    local fold = params:get("fold_amt")
+    params:set("fold_amt", util.clamp(fold + 0.03, 0, 0.85))
+
+    -- FM ratio shifts for metallic timbres (DPO cross-mod)
+    if math.random() < 0.3 then
+      local ratios = {1.5, 2, 2.5, 3, 0.75, 1.33}
+      params:set("fm_ratio", ratios[math.random(#ratios)])
+    end
+
+    -- waveguide resonance enters (Mysteron)
+    local wg = params:get("wg_mix")
+    params:set("wg_mix", util.clamp(wg + 0.03, 0, 0.6))
+
+    -- QPAS radiate opens (formant vowels)
+    local rad = params:get("radiate")
+    params:set("radiate", util.clamp(rad + 0.03, 0, 0.7))
+
+    -- chaos routes build: wogglebug -> fold + cutoff
+    params:set("chaos_to_fold", util.clamp(params:get("chaos_to_fold") + 0.03, 0, 0.7))
+    params:set("chaos_to_cutoff", util.clamp(params:get("chaos_to_cutoff") + 0.02, 0, 0.5))
+
+    -- velocity accents on random steps
+    if math.random() < 0.3 then
+      local i = math.random(1, seq.NUM_STEPS)
+      seq.set_step(i, "vel", 0.8 + math.random() * 0.2)
+    end
+
+    -- activate steps that were off
+    if math.random() < 0.2 then
+      local i = math.random(1, seq.NUM_STEPS)
+      local step = seq.get_step(i)
+      if step and not step.on then
+        seq.set_step(i, "on", true)
+      end
+    end
+
+    -- delay starts building (Strega warming up)
+    params:set("delay_mix", util.clamp(params:get("delay_mix") + 0.02, 0, 0.5))
+    params:set("delay_fb", util.clamp(params:get("delay_fb") + 0.02, 0.1, 0.75))
+
+  elseif phase == 3 then
+    -- RUPTURE: Strega feedback chaos. maximum fold. burst mode.
+    -- the patch is feeding back on itself. beautiful destruction.
+
+    -- wavefold maxes out
+    params:set("fold_amt", util.clamp(params:get("fold_amt") + 0.04, 0, 1))
+
+    -- FM surges
+    if math.random() < 0.4 then
+      params:set("fm_amt", 0.5 + math.random() * 1.0)
+    end
+
+    -- chaos routing at maximum
+    params:set("chaos_to_fold", util.clamp(params:get("chaos_to_fold") + 0.05, 0, 0.9))
+    params:set("chaos_to_cutoff", util.clamp(params:get("chaos_to_cutoff") + 0.04, 0, 0.8))
+    params:set("chaos_to_delay", util.clamp(params:get("chaos_to_delay") + 0.03, 0, 0.6))
+
+    -- correlation drops: wogglebug goes wild
+    params:set("correlation", util.clamp(params:get("correlation") - 0.04, 0.1, 0.9))
+
+    -- delay freeze momentarily (Mimeophon hold)
+    if math.random() < 0.15 then
+      params:set("delay_freeze", 2)  -- on
+    elseif math.random() < 0.3 then
+      params:set("delay_freeze", 1)  -- off
+    end
+
+    -- per-step fold overrides: random fold amounts per step
+    if math.random() < 0.35 then
+      local i = math.random(1, seq.NUM_STEPS)
+      seq.set_step(i, "fold_amt", math.random() * 0.9)
+    end
+
+    -- burst probability: some steps get per-step FM too
+    if math.random() < 0.25 then
+      local i = math.random(1, seq.NUM_STEPS)
+      seq.set_step(i, "fm_amt", math.random() * 1.5)
+    end
+
+    -- reverb builds toward infinite (Erbe-Verb resonance)
+    params:set("reverb_decay", util.clamp(params:get("reverb_decay") + 0.04, 0, 0.95))
+    params:set("reverb_mix", util.clamp(params:get("reverb_mix") + 0.02, 0, 0.5))
+    params:set("reverb_mod_depth", util.clamp(params:get("reverb_mod_depth") + 0.03, 0, 0.6))
+
+  elseif phase == 4 then
+    -- DISSOLVE: Morphagene decay. LPG plucks. reverb washes.
+    -- the sound dissolves into granular mist and space.
+
+    -- wavefold retreats
+    local fold = params:get("fold_amt")
+    if scene_anchors then
+      params:set("fold_amt", fold + (scene_anchors.fold_amt - fold) * 0.15)
+    else
+      params:set("fold_amt", util.clamp(fold - 0.04, 0, 1))
+    end
+
+    -- FM retreats
+    local fm = params:get("fm_amt")
+    params:set("fm_amt", util.clamp(fm - 0.05, 0, 2))
+
+    -- filter closes (LPG natural decay)
+    local cut = params:get("cutoff")
+    params:set("cutoff", util.clamp(cut * 0.92, 200, 18000))
+
+    -- LPG mode: switch on for plucky, acoustic decay
+    if explorer_tick == 1 then
+      params:set("lpg_mode", 2)  -- LPG on
+    end
+
+    -- waveguide fades
+    params:set("wg_mix", util.clamp(params:get("wg_mix") - 0.03, 0, 1))
+
+    -- chaos calms: correlation rises (smooth, melodic drift)
+    params:set("correlation", util.clamp(params:get("correlation") + 0.04, 0, 0.95))
+
+    -- chaos routes decay
+    params:set("chaos_to_fold", util.clamp(params:get("chaos_to_fold") - 0.04, 0, 1))
+    params:set("chaos_to_cutoff", util.clamp(params:get("chaos_to_cutoff") - 0.03, 0, 1))
+    params:set("chaos_to_delay", util.clamp(params:get("chaos_to_delay") - 0.02, 0, 1))
+
+    -- delay freeze off, delay fades
+    params:set("delay_freeze", 1)
+    params:set("delay_mix", util.clamp(params:get("delay_mix") - 0.02, 0, 1))
+
+    -- reverb sustains but modulation fades (Erbe-Verb tail)
+    params:set("reverb_mod_depth", util.clamp(params:get("reverb_mod_depth") - 0.03, 0, 1))
+
+    -- remove steps: thin out pattern
+    if math.random() < 0.25 then
+      local active = {}
+      for i = 1, seq.NUM_STEPS do
+        local step = seq.get_step(i)
+        if step and step.on then table.insert(active, i) end
+      end
+      if #active > 3 then
+        local idx = active[math.random(#active)]
+        seq.set_step(idx, "on", false)
+      end
+    end
+
+    -- clear per-step overrides
+    if math.random() < 0.3 then
+      local i = math.random(1, seq.NUM_STEPS)
+      seq.set_step(i, "fold_amt", -1)
+      seq.set_step(i, "fm_amt", -1)
+    end
+
+    -- drift notes downward
+    if math.random() < 0.2 then
+      local i = math.random(1, seq.NUM_STEPS)
+      local step = seq.get_step(i)
+      if step then
+        seq.set_step(i, "note", step.note - math.random(1, 2))
+      end
+    end
+
+    -- return to filter mode near end
+    if explorer_tick >= explorer_phase_lengths[phase] - 2 then
+      params:set("lpg_mode", 1)
+    end
+  end
+
+  -- phase transition
+  if explorer_tick >= explorer_phase_lengths[phase] then
+    explorer_tick = 0
+    explorer_phase = (explorer_phase % 4) + 1
+    -- randomize next phase length (keep it unpredictable like Wogglebug)
+    explorer_phase_lengths[explorer_phase] = explorer_phase_lengths[explorer_phase] + math.random(-3, 3)
+    explorer_phase_lengths[explorer_phase] = util.clamp(explorer_phase_lengths[explorer_phase], 4, 16)
+
+    -- on return to DRIFT, re-enable all steps and pull back to anchors
+    if explorer_phase == 1 then
+      for i = 1, seq.NUM_STEPS do
+        seq.set_step(i, "on", true)
+        seq.set_step(i, "fold_amt", -1)
+        seq.set_step(i, "fm_amt", -1)
+      end
+      -- pull params back toward scene anchors
+      if scene_anchors then
+        for name, target in pairs(scene_anchors) do
+          local cur = params:get(name)
+          params:set(name, cur + (target - cur) * 0.4)
+        end
+      end
+    end
+  end
+
+  screen_dirty = true
+end
+
+local function start_explorer()
+  save_scene_anchors()
+  explorer_on = true
+  explorer_tick = 0
+  explorer_phase = 1
+  explorer_clock_id = clock.run(function()
+    while explorer_on do
+      clock.sync(2) -- evolve every 2 beats
+      if explorer_on and playing then
+        explorer_evolve()
+      end
+    end
+  end)
+end
+
+local function stop_explorer()
+  explorer_on = false
+  if explorer_clock_id then
+    clock.cancel(explorer_clock_id)
+    explorer_clock_id = nil
+  end
+  -- restore scene anchors
+  if scene_anchors then
+    for name, target in pairs(scene_anchors) do
+      params:set(name, target)
+    end
+  end
+  -- clear per-step overrides
+  for i = 1, seq.NUM_STEPS do
+    seq.set_step(i, "fold_amt", -1)
+    seq.set_step(i, "fm_amt", -1)
+    seq.set_step(i, "on", true)
+  end
+  params:set("delay_freeze", 1)
+  params:set("lpg_mode", 1)
+end
 
 -- ======== MIDI HELPERS ========
 
@@ -477,16 +785,38 @@ local function draw_header(name)
   screen.font_size(8)
   screen.move(2, 8)
   screen.text(name)
-  -- page dots
+  -- page dots (left of explorer area)
   for i = 1, #PAGES do
     screen.level(i == current_page and 15 or 3)
-    screen.rect(128 - (#PAGES - i + 1) * 6, 3, 3, 3)
+    screen.rect(50 + (i - 1) * 6, 3, 3, 3)
     screen.fill()
   end
 end
 
 local function draw_step_indicator()
-  if not playing then return end
+  -- explorer phase indicator (top right area, below page dots)
+  if explorer_on then
+    screen.level(15)
+    screen.font_size(8)
+    local phase_name = EXPLORER_PHASES[explorer_phase] or ""
+    screen.move(90, 8)
+    screen.text(phase_name)
+    -- progress bar
+    local prog = explorer_tick / explorer_phase_lengths[explorer_phase]
+    screen.level(7)
+    screen.rect(90, 10, prog * 38, 2)
+    screen.fill()
+  end
+
+  -- step indicator at bottom
+  if not playing then
+    -- show K2 hold hint when not playing
+    screen.level(3)
+    screen.font_size(8)
+    screen.move(2, 62)
+    screen.text(explorer_on and "EXPLORE" or "K2:play  hold:explore")
+    return
+  end
   for i = 1, seq.NUM_STEPS do
     local x = 2 + (i - 1) * 15
     local step = seq.get_step(i)
@@ -927,21 +1257,25 @@ function enc(n, d)
 end
 
 function key(n, z)
-  if z == 0 then return end
-
   if n == 2 then
-    -- play/stop (all pages except morph where K2 is rec)
-    if current_page == 4 then
-      -- MORPH: toggle recording
-      if tape_recording then
-        stop_recording()
-      else
-        start_recording()
-      end
+    if z == 1 then
+      k2_hold_time = util.time()
     else
-      if playing then stop_seq() else start_seq() end
+      -- K2 release: check hold duration
+      local held = util.time() - k2_hold_time
+      if held > 0.5 then
+        -- LONG PRESS: toggle explorer
+        if explorer_on then stop_explorer() else start_explorer() end
+      else
+        -- SHORT PRESS: play/stop or record
+        if current_page == 4 then
+          if tape_recording then stop_recording() else start_recording() end
+        else
+          if playing then stop_seq() else start_seq() end
+        end
+      end
     end
-  elseif n == 3 then
+  elseif n == 3 and z == 1 then
     if current_page == 1 then
       -- cycle waveguide excitation
       local wge = params:get("wg_excite")
@@ -1178,8 +1512,8 @@ function init()
       redraw()
       screen_dirty = false
     end
-    -- always dirty when playing (step indicator) or chaos active
-    if playing then screen_dirty = true end
+    -- always dirty when playing, exploring, or chaos active
+    if playing or explorer_on then screen_dirty = true end
     if params:get("chaos_to_fold") > 0.01 or
        params:get("chaos_to_cutoff") > 0.01 or
        params:get("chaos_to_delay") > 0.01 then
@@ -1197,6 +1531,7 @@ end
 -- ======== CLEANUP ========
 
 function cleanup()
+  stop_explorer()
   if seq_clock_id then clock.cancel(seq_clock_id) end
   if screen_metro then screen_metro:stop() end
   note_off()
