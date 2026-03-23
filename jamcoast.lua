@@ -204,6 +204,8 @@ local explorer_style = 1
 local EXPLORER_PHASES = {"DRIFT", "SURGE", "RUPTURE", "DISSOLVE"}
 local active_palette = nil
 local scene_anchors = nil
+-- local phase lengths (don't mutate style tables)
+local explorer_pl = {10, 8, 6, 10}
 
 local function get_style()
   return EXPLORER_STYLES[explorer_style] or EXPLORER_STYLES[1]
@@ -256,8 +258,7 @@ local function explorer_evolve()
   local s = get_style()
   local phase = explorer_phase
   local a = s.aggression
-  local pl = s.phase_lengths
-  local progress = explorer_tick / pl[phase]
+  local progress = explorer_tick / explorer_pl[phase]
 
   -- ---- PHASE 1: DRIFT ----
   if phase == 1 then
@@ -420,14 +421,13 @@ local function explorer_evolve()
   end
 
   -- ---- PHASE TRANSITION ----
-  if explorer_tick >= pl[phase] then
+  if explorer_tick >= explorer_pl[phase] then
     explorer_tick = 0
     explorer_phase = (explorer_phase % 4) + 1
-    -- randomize next phase length
+    -- randomize next phase length (local copy, don't mutate style)
     local s2 = get_style()
     local base = s2.phase_lengths[explorer_phase]
-    local jitter = math.random(-3, 3)
-    s2.phase_lengths[explorer_phase] = util.clamp(base + jitter, 3, 18)
+    explorer_pl[explorer_phase] = util.clamp(base + math.random(-3, 3), 3, 18)
 
     -- on return to DRIFT: guarantee sound
     if explorer_phase == 1 then
@@ -463,12 +463,18 @@ local function start_explorer()
   explorer_on = true
   explorer_tick = 0
   explorer_phase = 1
+  -- reset local phase lengths from current style
   local s = get_style()
+  for i = 1, 4 do explorer_pl[i] = s.phase_lengths[i] end
   explorer_clock_id = clock.run(function()
     while explorer_on do
-      clock.sync(s.speed)
+      local spd = get_style().speed or 2
+      clock.sync(spd)
       if explorer_on and playing then
-        explorer_evolve()
+        local ok, err = pcall(explorer_evolve)
+        if not ok then
+          print("explorer error: " .. tostring(err))
+        end
       end
     end
   end)
@@ -937,8 +943,7 @@ local function draw_step_indicator()
     screen.move(90, 8)
     screen.text(phase_name)
     -- progress bar
-    local s = get_style()
-    local pl = s.phase_lengths[explorer_phase] or 8
+    local pl = explorer_pl[explorer_phase] or 8
     local prog = util.clamp(explorer_tick / pl, 0, 1)
     screen.level(7)
     screen.rect(90, 10, prog * 38, 2)
