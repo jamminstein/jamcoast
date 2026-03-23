@@ -1389,23 +1389,12 @@ function enc(n, d)
 end
 
 function key(n, z)
-  if n == 2 then
-    if z == 1 then
-      k2_hold_time = util.time()
+  if n == 2 and z == 1 then
+    -- K2: play/stop or record
+    if current_page == 4 then
+      if tape_recording then stop_recording() else start_recording() end
     else
-      -- K2 release: check hold duration
-      local held = util.time() - k2_hold_time
-      if held > 0.5 then
-        -- LONG PRESS: toggle explorer
-        if explorer_on then stop_explorer() else start_explorer() end
-      else
-        -- SHORT PRESS: play/stop or record
-        if current_page == 4 then
-          if tape_recording then stop_recording() else start_recording() end
-        else
-          if playing then stop_seq() else start_seq() end
-        end
-      end
+      if playing then stop_seq() else start_seq() end
     end
   elseif n == 3 and z == 1 then
     if current_page == 1 then
